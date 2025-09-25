@@ -1,10 +1,11 @@
 import { PDFLoader } from "@langchain/community/document_loaders/fs/pdf";
-import { ChatOllama, OllamaEmbeddings } from "@langchain/ollama";
+import { ChatOpenAI, OpenAIEmbeddings } from "@langchain/openai";
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import { MemoryVectorStore } from "langchain/vectorstores/memory";
 import { PromptTemplate } from "@langchain/core/prompts";
 import { Document, DocumentInterface } from "@langchain/core/documents";
 import { AIMessageChunk } from "@langchain/core/messages";
+import "dotenv/config";
 
 export const loadAndSplit = async (path: string): Promise<Document[]> => {
   const loader = new PDFLoader(path);
@@ -21,13 +22,15 @@ export const loadAndSplit = async (path: string): Promise<Document[]> => {
 
 const vectorSearchCache: Record<string, MemoryVectorStore> = {};
 
-export const search = async (
-  splits: Document[],
-  query: string,
-  filePath: string
-): Promise<DocumentInterface[]> => {
+export const indexFile = async (filePath: string): Promise<void> => {
+  console.log("Indexing file", filePath);
+  console.log("OPENAI_API_KEY", process.env.OPENAI_API_KEY);
   if (!vectorSearchCache[filePath]) {
-    const embeddings = new OllamaEmbeddings();
+    const embeddings = new OpenAIEmbeddings({
+      apiKey: process.env.OPENAI_API_KEY,
+      openAIApiKey: process.env.OPENAI_API_KEY,
+    });
+    const splits = await loadAndSplit(filePath);
     console.log("Indexing vectors");
     vectorSearchCache[filePath] = await MemoryVectorStore.fromDocuments(
       splits,
@@ -36,7 +39,15 @@ export const search = async (
   } else {
     console.log("Using cached vectors");
   }
+};
 
+export const search = async (
+  query: string,
+  filePath: string
+): Promise<DocumentInterface[]> => {
+  if (!vectorSearchCache[filePath]) {
+    await indexFile(filePath);
+  }
   const vectorStore = vectorSearchCache[filePath];
   return vectorStore.similaritySearch(query);
 };
@@ -61,10 +72,11 @@ export const generatePrompt = (
 };
 
 export const generateOutput = (prompt: string): Promise<AIMessageChunk> => {
-  const ollamaLlm = new ChatOllama({
-    baseUrl: "http://localhost:11434/",
-    model: "llama3.2",
+  const llm = new ChatOpenAI({
+    modelName: "gpt-4o-mini",
+    apiKey: process.env.OPENAI_API_KEY,
+    openAIApiKey: process.env.OPENAI_API_KEY,
   });
   console.log("Generated output");
-  return ollamaLlm.invoke(prompt);
+  return llm.invoke(prompt);
 };
